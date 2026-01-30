@@ -1,8 +1,6 @@
 import type {
-  Player,
   Platform,
   JumpKingGameState,
-  TetrisBlock,
   TetrominoType,
 } from './jumpKingTypes'
 import { TETROMINO_SHAPES, TETROMINO_COLORS, PLATFORM_COLORS } from './jumpKingTypes'
@@ -187,7 +185,7 @@ export class JumpKingEngine {
     }
   }
 
-  private updatePlayer(deltaTime: number) {
+  private updatePlayer(_deltaTime: number) {
     const player = this.state.player
 
     // 중력 적용

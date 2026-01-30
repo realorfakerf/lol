@@ -1,4 +1,4 @@
-import type { GameState, GameMode, PlayerNumber, PlayerState } from './types'
+import type { GameState, GameMode, GamePhase, PlayerNumber, PlayerState, Tetromino } from './types'
 import { 
   TetrisEngine, 
   BUILDING_DECAY_RATE,
@@ -18,7 +18,6 @@ export class TetrisBuildingGame {
   private dropInterval: number = 500 // 0.5초마다 자동 낙하 (더 빠르게)
   private lastDropTime: number
   private onStateChange?: (state: GameState) => void
-  private moveSensitivity: number = 5 // 이동 감도
 
   constructor(mode: GameMode = 'local', targetHeight: number = 50) {
     this.gameState = {
@@ -44,7 +43,6 @@ export class TetrisBuildingGame {
     // dropSpeed: 1(느림) = 1000ms, 10(빠름) = 100ms
     // 공식: 1100 - (dropSpeed * 100)
     this.dropInterval = 1100 - (settings.dropSpeed * 100)
-    this.moveSensitivity = settings.moveSensitivity
   }
 
   // 게임 시작
@@ -138,17 +136,20 @@ export class TetrisBuildingGame {
     // 저장된 블록이 없으면 현재 블록을 저장하고 다음 블록 사용
     if (!player.savedPiece) {
       // 현재 블록을 저장 (위치 초기화)
-      const saved = { ...player.currentPiece }
-      saved.x = 0
-      saved.y = 0
+      const cur = player.currentPiece!
+      const saved: Tetromino = { type: cur.type, shape: cur.shape, x: 0, y: 0, color: cur.color }
       player.savedPiece = saved
       
       // 다음 블록을 현재 블록으로 (위치 초기화)
-      player.currentPiece = { ...player.nextPiece }
-      player.currentPiece.x = Math.floor(BOARD_WIDTH / 2) - Math.floor(player.currentPiece.shape[0].length / 2)
-      player.currentPiece.y = 0
-      
-      // 새로운 다음 블록 생성
+      const next = player.nextPiece!
+      const newPiece: Tetromino = {
+        type: next.type,
+        shape: next.shape,
+        x: Math.floor(BOARD_WIDTH / 2) - Math.floor(next.shape[0].length / 2),
+        y: 0,
+        color: next.color,
+      }
+      player.currentPiece = newPiece
       player.nextPiece = TetrisEngine.createRandomTetromino()
       player.nextPiece.x = BOARD_WIDTH + 2
       player.nextPiece.y = 2
@@ -156,20 +157,23 @@ export class TetrisBuildingGame {
       player.canSwap = false
     } else {
       // 저장된 블록과 현재 블록 교환
-      const temp = player.currentPiece
-      player.currentPiece = { ...player.savedPiece }
-      player.currentPiece.x = Math.floor(BOARD_WIDTH / 2) - Math.floor(player.currentPiece.shape[0].length / 2)
-      player.currentPiece.y = 0
-      
-      player.savedPiece = { ...temp }
-      player.savedPiece.x = 0
-      player.savedPiece.y = 0
-      
+      const tempPiece = player.currentPiece!
+      const saved = player.savedPiece!
+      const swappedCurrent: Tetromino = {
+        type: saved.type,
+        shape: saved.shape,
+        x: Math.floor(BOARD_WIDTH / 2) - Math.floor(saved.shape[0].length / 2),
+        y: 0,
+        color: saved.color,
+      }
+      player.currentPiece = swappedCurrent
+      player.savedPiece = { type: tempPiece.type, shape: tempPiece.shape, x: 0, y: 0, color: tempPiece.color }
       player.canSwap = false
     }
 
     // 충돌 체크
-    if (TetrisEngine.checkCollision(player.board, player.currentPiece)) {
+    const pieceAfterSwap = player.currentPiece
+    if (pieceAfterSwap && TetrisEngine.checkCollision(player.board, pieceAfterSwap)) {
       player.isGameOver = true
     }
 
@@ -178,14 +182,15 @@ export class TetrisBuildingGame {
 
   // 블록 고정 및 새 블록 생성
   private lockPieceAndSpawnNew(player: PlayerState, playerNumber: PlayerNumber) {
-    if (!player.currentPiece) return
+    const currentPiece = player.currentPiece
+    if (!currentPiece) return
 
     // 천장에 닿았는지 확인 (블록의 일부가 y <= 0에 있는지)
     let hitCeiling = false
-    for (let y = 0; y < player.currentPiece.shape.length; y++) {
-      for (let x = 0; x < player.currentPiece.shape[y].length; x++) {
-        if (player.currentPiece.shape[y][x]) {
-          const boardY = player.currentPiece.y + y
+    for (let y = 0; y < currentPiece.shape.length; y++) {
+      for (let x = 0; x < currentPiece.shape[y].length; x++) {
+        if (currentPiece.shape[y][x]) {
+          const boardY = currentPiece.y + y
           // 천장(y=0)에 닿거나 천장을 뚫으면 게임 오버
           if (boardY <= 0) {
             hitCeiling = true
@@ -205,7 +210,7 @@ export class TetrisBuildingGame {
     }
 
     // 블록 고정
-    player.board = TetrisEngine.lockPiece(player.board, player.currentPiece)
+    player.board = TetrisEngine.lockPiece(player.board, currentPiece)
 
     // 줄 제거 확인
     const { newBoard, linesCleared } = TetrisEngine.clearLines(player.board)
@@ -229,10 +234,15 @@ export class TetrisBuildingGame {
     player.emptySpacesCount = TetrisEngine.countEmptySpaces(player.board)
 
     // 새 블록 생성 (다음 블록을 현재로, 새로운 다음 블록 생성)
-    player.currentPiece = { ...player.nextPiece }
-    player.currentPiece.x = Math.floor(BOARD_WIDTH / 2) - Math.floor(player.currentPiece.shape[0].length / 2)
-    player.currentPiece.y = 0
-    
+    const nextForCurrent = player.nextPiece!
+    const newCurrent: Tetromino = {
+      type: nextForCurrent.type,
+      shape: nextForCurrent.shape,
+      x: Math.floor(BOARD_WIDTH / 2) - Math.floor(nextForCurrent.shape[0].length / 2),
+      y: 0,
+      color: nextForCurrent.color,
+    }
+    player.currentPiece = newCurrent
     player.nextPiece = TetrisEngine.createRandomTetromino()
     player.nextPiece.x = BOARD_WIDTH + 2 // 보드 오른쪽에 배치 (겹치지 않게)
     player.nextPiece.y = 2
@@ -241,7 +251,8 @@ export class TetrisBuildingGame {
     player.canSwap = true
 
     // 게임 오버 체크 (새 블록이 충돌하면)
-    if (player.currentPiece && TetrisEngine.checkCollision(player.board, player.currentPiece)) {
+    const newPiece = player.currentPiece
+    if (newPiece && TetrisEngine.checkCollision(player.board, newPiece)) {
       player.isGameOver = true
       this.checkGameEnd(playerNumber)
     }
@@ -289,7 +300,8 @@ export class TetrisBuildingGame {
       if (this.gameState.player2.isGameOver) {
         this.checkGameEnd(2)
       }
-      if (this.gameState.phase === 'finished') {
+      // checkGameEnd에서 phase가 'finished'로 바뀔 수 있음
+      if ((this.gameState.phase as GamePhase) === 'finished') {
         return
       }
     }
